@@ -14,7 +14,7 @@ const UserProvider = ({ children }) => {
   const [approvalVotes, setApprovalVotes] = useState(0);
   const [rejectVotes, setRejectVotes] = useState(0);
   const [blankVotes, setBlankVotes] = useState(0);    
-
+  const [checkApprove, setCheckApprove] = useState(null);
 
     // ✅ Recuperar datos guardados al inicio
   useEffect(() => {
@@ -32,7 +32,6 @@ const UserProvider = ({ children }) => {
     setEmail(email);
     setIsAuthenticated(true);
     setOwnerData(data);
-    // setVotingEnabled(true);
 
      localStorage.setItem(
       "ownerInfo",
@@ -69,11 +68,15 @@ const UserProvider = ({ children }) => {
         setApprovalVotes,
         setRejectVotes,
         setBlankVotes,
-        setAdminId
-        
+        setAdminId,
+        checkApprove,
+        setCheckApprove
+
        }}>
       {children}
     </UserContext.Provider>
+
+
   );
 };
 

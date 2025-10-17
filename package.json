@@ -7,7 +7,7 @@
     "frontend:install": "cd cliente && npm install",
     "frontend:build": "cd cliente && npm run build",
     "backend:install": "cd src && npm install",
-    "dev": "concurrently \"cd cliente && npm run dev\" \"cd src && nodemon index.js\"",
+    "dev": "concurrently \"cd cliente && npm run dev\" \"cd server && nodemon index.js\"",
     "build": "npm run frontend:build",
     "start": "node src/index.js"
   },

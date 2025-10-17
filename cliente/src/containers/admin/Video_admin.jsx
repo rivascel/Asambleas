@@ -3,9 +3,9 @@ import { UserContext } from "../../components/UserContext";
 import { io } from "socket.io-client";
 import { startBroadcasting, stopLocalStream, 
   listenForAnswers,
-  joinStreamAsAdmin,
-  getAdmin
+  joinStreamAsAdmin, listenForApprovals
  } from "../../hooks/webrtc-manager";
+import { listenToApprovals, registerAdminIsActive } from "../../supabase-client";
 
 const socket10 = io("https://localhost:3000", {
   withCredentials: true,
@@ -23,50 +23,130 @@ const VideoGeneral = () => {
   const { email } = useContext(UserContext);
   const roomId="main-room";
 
+  const socket16 = io("https://localhost:3000", {
+    withCredentials: true,
+  });
+
   const ownerInfo = JSON.parse(localStorage.getItem("ownerInfo"));
+  const [approvedViewer, setApprovedViewer] = useState(null);
+  const [viewerReady, setViewerReady] = useState(false);
+  let check=false;
 
+  //1. Effect escuchar aprobaciones
   useEffect(() => {
-    const fetchAdmin = async () => {
-    const admin = await getAdmin(roomId);
-    // console.log("Admin",admin);
 
-    // if (remoteRef.current) {
-    //   remoteRef.current.srcObject = new MediaStream();
-    // }
+    let unsubscribe;
 
-    if (admin) {
-      // console.log(`email ${ownerInfo.email}, adminId: ${admin}, roomId: ${roomId}`);
-      joinStreamAsAdmin(roomId, ownerInfo.email, admin, remoteRef.current);
+    listenForApprovals(roomId);
+      
+    
+    (async () => {
+      unsubscribe = await listenToApprovals(roomId, ({ user_id }) => { 
+      console.log("Escuchando aprobaciones", user_id);
+      setApprovedViewer(user_id);
+      setViewerReady(true);
+    });
+      })();
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
     }
-      };
-    fetchAdmin();
-  },[remoteRef.current?.srcObject]);
 
+  },[roomId]);
 
-    const openBroadcasting = async () => {
-      try {
-        // 1. Obtener stream local
-        await startBroadcasting(roomId, email, localRef.current);
-        //Funcion que escucha las respuestas 
+  //Detectar stream del viewer
+//   useEffect(() => {
+//     if (!approvedViewer) return;
 
-        await listenForAnswers(email);
+//     const interval = setInterval(() => {
+//     const video = remoteRef.current;
+//     if (video && video.srcObject && video.readyState >= 3) {
+//       setViewerReady(true)};
+//     }, 2000);
 
-        setIsBroadcasting(true);
+//   return () => clearInterval(interval);
+// }, [approvedViewer]);
 
-      } catch (error) {
-        console.error("Error al iniciar llamada:", error);
-      }
+useEffect( () => {
+    // if (check) {
+
+    if (!approvedViewer) return;
+
+    const fetchData =  async () => {
+      // const adminId = await getAdmin(roomId);
+      // Unirse al stream
+      await registerAdminIsActive(roomId, email);
+      await joinStreamAsAdmin(roomId, email, remoteRef.current);
+      console.log("valores stream del admin", roomId, email);
+      
+      // Lógica de la llamada...
+      console.log('Llamada en curso...');
+      
+      // Esperar fin de llamada (5 minutos ejemplo)
+      // await new Promise(resolve => setTimeout(resolve, 5 * 60 * 1000));
+      
+      // Prepararse para el siguiente viewer
+      setApprovedViewer(true);
     };
-  
-    const hangUpBroadcasting = async () => {
-      try {
-        stopLocalStream(email, localRef.current);
-        setIsBroadcasting(false);
-      } catch (error) {
-        console.error("Error al colgar llamada:", error);
-      }
-    };
-  
+    fetchData();
+  // }
+  //   else return;
+  }, [approvedViewer]);
+
+
+  //control manual del admin
+  // const startViewerTimer = (minutes) => {
+  //   if (!approvedViewer || !viewerReady) return;
+
+  //   socket.emit('start-timer', {
+  //     viewerId: approvedViewer,
+  //     duration: minutes * 60,
+  //     roomId: roomId
+  //   });
+  // };
+
+// const skipViewer = () => {
+//   setApprovedViewer(null);
+//   setViewerReady(false);
+// };
+
+// 4. Fin de intervención
+// useEffect(() => {
+//   const handleTimerEnd = (data) => {
+//     if (data.viewerId === approvedViewer) {
+//       setApprovedViewer(null);
+//       setViewerReady(false);
+//     }
+//     };
+
+//   socket.on('timer-ended', handleTimerEnd);
+//   return () => socket.off('timer-ended', handleTimerEnd);
+// }, [approvedViewer]);
+
+  const openBroadcasting = async () => {
+    try {
+      // 1. Obtener stream local
+      await startBroadcasting(roomId, email, localRef.current);
+      //Funcion que escucha las respuestas 
+
+      await listenForAnswers(email);
+
+      setIsBroadcasting(true);
+
+    } catch (error) {
+      console.error("Error al iniciar llamada:", error);
+    }
+  };
+
+  const hangUpBroadcasting = async () => {
+    try {
+      stopLocalStream(localRef.current);
+      setIsBroadcasting(false);
+    } catch (error) {
+      console.error("Error al colgar llamada:", error);
+    }
+  };
+
   return (
     <div className="space-y-6">
 {/* 

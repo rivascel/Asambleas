@@ -6,7 +6,7 @@ import {
   sendJoinRequest, // Import the new sender function
   sendSignal,
   listenToSignalsFromAdmin,
-  listenToSignals
+  listenToSignals,
  
 } from "../../src/supabase-client";
 
@@ -16,25 +16,41 @@ const peerConnections={};
 let localStream;
 let remoteStream;
 let candidateQueue = [];
+const appliedAnswers = new Set();
 
 // Obtener configuración del servidor
 const response = await fetch('https://localhost:3000/api/webrtc-config');
 const configuration = await response.json(); 
+
+function createPeerConnection(viewerId) {
+  const pc = new RTCPeerConnection(configuration);
+  peerConnections[viewerId] = pc;
+  return pc;
+}
+
+function getPeerConnection(viewerId) {
+  return peerConnections[viewerId];
+}
+
+function closePeerConnection(admin) {
+  const pc = peerConnections[admin];
+  if (pc) {
+    pc.close();
+    delete peerConnections[admin];
+    console.log(`✅ PeerConnection de ${admin} cerrada`);
+  }
+}
 
 export async function getAdmin(roomId) {
   return await getActiveAdmin(roomId);
 };
 
 export async function startLocalStream(roomId, email, localVideoElement) {
-  const pc = new RTCPeerConnection(configuration);
   try{
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideoElement.srcObject = localStream;
 
-    // Agregar tracks del local stream
-    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
-   
-    await createOfferToAdmin(roomId, email, pc);
+    await createOfferToAdmin(roomId, email /*, pc*/);
 
     return localStream;
   } catch(error){
@@ -75,26 +91,24 @@ export async function joinStreamAsViewer(roomId, viewerId, adminId, streamTarget
 
 //==============================================================
 
+let adminPc;
 // Viewer crea y envía oferta a Admin
-export async function createOfferToAdmin(roomId, viewerId, pc) {
+export async function createOfferToAdmin(roomId, viewerId /*, pc*/) {
 
   try {
     const adminId = await getActiveAdmin(roomId);
     console.log("admin desde cliente", adminId);
 
-    // ✅ CORRECCIÓN CRÍTICA: Agrega las pistas del admin a la conexión de este viewer.
-    // La variable 'localStream' debe estar disponible en este scope.
-    // if (localStream) {
-    //   localStream.getTracks().forEach(track => {
-    //     pc.addTrack(track, localStream);
-    //   });
-    // } else {
-    //   console.error("localStream no está disponible para agregar tracks!");
-    //   return; // O manejar el error apropiadamente
-    // }
+    adminPc = getPeerConnection(adminId);
+    if (!adminPc) {
+      adminPc = createPeerConnection(adminId);
+    } 
+
+      // Agregar tracks del local stream
+    localStream.getTracks().forEach((track) => adminPc.addTrack(track, localStream));
 
     // Manejar ICE candidates
-    pc.onicecandidate = async (event) => {
+    adminPc.onicecandidate = async (event) => {
       if (event.candidate) {
         // Enviar a cada viewer individualmente
 
@@ -119,8 +133,8 @@ export async function createOfferToAdmin(roomId, viewerId, pc) {
     };
 
     // Crear y enviar oferta
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    const offer = await adminPc.createOffer();
+    await adminPc.setLocalDescription(offer);
 
     // Registra oferta en webrtc_signaling
     // Enviar a cada viewer
@@ -132,16 +146,14 @@ export async function createOfferToAdmin(roomId, viewerId, pc) {
     payload: offer
     });
   
-    peerConnections[adminId] = pc;
-
-    console.log(`Oferta enviada a admin ${adminId}`);
+    console.log(`Oferta enviada a ${adminId}`);
       
   // }
 
     return { adminId };
   } catch (error) {
     // if (unsubscribe) unsubscribe();
-    pc.close();
+    adminPc.close();
     console.error("Error al crear oferta:", error);
     throw error;
     }
@@ -160,24 +172,29 @@ export async function listenForAnswers(viewerId) {
     }
 
     if (type === "answer") {
-
-      console.log("📦 Payload recibido del answer:", payload);
-
-      const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
-
-      // Verificar el estado de señalización
+      await handleAnswer(from_user, payload);
+    };
+      
+    // Verificar el estado de señalización
       console.log("Estado actual de señalización:", pc.signalingState);
       
       if (pc.signalingState !== "have-local-offer") {
           console.warn("Estado incorrecto para answer. Estado actual:", pc.signalingState);
           return;
       }
-      
+
+      console.log("📦 Payload recibido del answer:");
+
+      const answer = typeof payload === "string" ? JSON.parse(payload) : payload;
+
+      if (pc.signalingState === "have-local-offer") {
+        await pc.setRemoteDescription(answer);
+        console.log(`✅ Answer aplicado para ${viewerId}`);
+      } else {
+        console.warn(`⚠️ Estado inesperado: ${pc.signalingState} para ${viewerId}`);
+      }
+
       try {
-        await pc.setRemoteDescription(new RTCSessionDescription(parsed));
-
-        console.log(`Respuesta aplicada desde ${adminId}`);
-
         while (candidateQueue.length > 0) {
           const queuedCandidate = candidateQueue.shift();
           try {
@@ -190,7 +207,7 @@ export async function listenForAnswers(viewerId) {
       } catch (error) {
       console.error(`❌ Error al aplicar la respuesta de ${adminId}:`, error);
       }
-    }
+    
 
     if (type === "ice-candidate") {
       try {
@@ -233,26 +250,44 @@ export async function listenForAnswers(viewerId) {
         console.error(`Error agregando ICE candidate de ${adminId}:`, error);
       }
     }
+
+    async function handleAnswer(viewerId, answer) {
+      const key = `${viewerId}:${answer.sdp}`;
+      // Evitar procesar el mismo answer dos veces
+      if (appliedAnswers.has(key)) {
+        console.log("⏩ Answer duplicado ignorado:", viewerId);
+        return;
+      }
+      appliedAnswers.add(key);
+
+    }
   });
   
 };
 
+
 export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
-  
+  console.log("Verificando que el usuario aprobado es:",viewerId );
   if (peerConnections[adminId]) {
     peerConnections[adminId].close();
     delete peerConnections[adminId];
   };
 
-  const pc = new RTCPeerConnection(configuration);
+  // const pcAdmin = new RTCPeerConnection(configuration);
+  // peerConnections[adminId] = pcAdmin;
+
+  let pcAdmin = getPeerConnection(adminId);
+  if (!pcAdmin) {
+    pcAdmin = createPeerConnection(adminId);
+  }
   remoteStream = new MediaStream();
 
    // Prepara la conexión para recibir audio y video.
-  pc.addTransceiver('video', { direction: 'sendrecv' });
-  pc.addTransceiver('audio', { direction: 'sendrecv' });
+  pcAdmin.addTransceiver('video', { direction: 'sendrecv' });
+  pcAdmin.addTransceiver('audio', { direction: 'sendrecv' });
 
     // 2. Mostrar el video remoto (stream del admin)
-  pc.ontrack = (event) => {
+  pcAdmin.ontrack = (event) => {
     console.log("🎥 Track recibido:", event.track.kind);
 
     event.streams[0].getTracks().forEach(track => {
@@ -267,10 +302,8 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
     }
   };
 
-  peerConnections[adminId] = pc;
-
     // Manejar ICE candidates
-  pc.onicecandidate = async (event) => {
+  pcAdmin.onicecandidate = async (event) => {
     if (event.candidate) {
       // Enviar a cada viewer individualmente
         try {
@@ -298,23 +331,17 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
   let isCreatingAnswer = false;
   let candidateQueue = [];
 
-  //Escucha del Viewer - to_user
-  listenToSignalsFromAdmin(adminId, async ({ to_user, from_user, type, payload, room_id }) => {
+  //Escucha las ofertas enviadas del admin al viewer
+  listenToSignalsFromAdmin(viewerId, async ({ to_user, from_user, type, payload, room_id }) => {
     try {
       if (type === "offer") {
-        if (isSettingRemoteDescription || isCreatingAnswer || pc.signalingState !== "stable") {
+        if (isSettingRemoteDescription || isCreatingAnswer || pcAdmin.signalingState !== "stable") {
           console.warn('Ya se está procesando una oferta o no estamos en estado estable');
           return;
         }
 
         isSettingRemoteDescription = true;
         
-        // const parsedOffer = JSON.parse(payload);
-        // console.log("Remote offer recibida:", ({ type: parsedOffer.type, sdp: parsedOffer.sdp }));
-        
-
-        //  console.log("Raw offer payload:", payload); // Debug
-
         let offer;
         if (typeof payload === 'string') {
           try {
@@ -327,38 +354,33 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
           offer = payload;
         }
 
-        // console.log("📜 Offer recibida:", offer);
-        // console.log("📜 SDP:", offer.sdp);
-
-
-
-        if (pc.connectionState === "closed") {
+        if (pcAdmin.connectionState === "closed") {
           console.warn("⚠️ Intentando usar una peer connection cerrada.");
           return;
         }
         // await pc.setRemoteDescription(new RTCSessionDescription({ type: parsedOffer.type, sdp: parsedOffer.sdp }));
         
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await pcAdmin.setRemoteDescription(new RTCSessionDescription(offer));
 
         console.log("Remote description set");
 
         // 2. Process queued candidates (with ufrag validation)
-        await processCandidateQueue(pc, candidateQueue);
+        await processCandidateQueue(pcAdmin, candidateQueue);
 
         // 3. Create and send answer
         isCreatingAnswer = true;
 
-        const answer = await pc.createAnswer();
+        const answer = await pcAdmin.createAnswer();
         console.log("Answer created:", answer.type);
 
-        await pc.setLocalDescription(answer);
+        await pcAdmin.setLocalDescription(answer);
         console.log("Local description set");
 
-        pc.onconnectionstatechange = () => {
-          console.log("📡 Conexión state:", pc.connectionState);
-          if (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed") {
+        pcAdmin.onconnectionstatechange = () => {
+          console.log("📡 Conexión state:", pcAdmin.connectionState);
+          if (pcAdmin.connectionState === "disconnected" || pcAdmin.connectionState === "failed" || pcAdmin.connectionState === "closed") {
             console.warn("❌ Conexión cerrada, liberando recursos");
-            pc.close();
+            pcAdmin.close();
             delete peerConnections[adminId];
           }
         };
@@ -367,12 +389,12 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
 
         await sendSignal({
           room_id: room_id,
-          from_user: to_user,  //o viewer
-          to_user: from_user,   // o adminId
+          from_user: to_user,  //envia EL viewer
+          to_user: from_user,   //envia AL admin
           type: "answer",
           payload: answer,
         });
-        console.log("Answer sent to admin");
+        console.log("Answer sent to",from_user);
 
       } 
       else if (type === "ice-candidate" && payload) {
@@ -401,13 +423,13 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
 
             const candidate = new RTCIceCandidate(parsed);
 
-            if (!pc || pc.connectionState === "closed") {
+            if (!pcAdmin || pcAdmin.connectionState === "closed") {
               console.warn("⚠️ Peer connection cerrada o no existe");
               return;
             }
 
-            if (pc.remoteDescription) {
-              await pc.addIceCandidate(candidate);
+            if (pcAdmin.remoteDescription) {
+              await pcAdmin.addIceCandidate(candidate);
               console.log("✅ ICE candidate agregado");
             } else {
               candidateQueue.push(candidate);
@@ -423,9 +445,9 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
       return () => {
       unsubscribe();
 
-      if (pc) {
-        pc.close();
-        pc = null;
+      if (pcAdmin) {
+        pcAdmin.close();
+        pcAdmin = null;
 
       }
       remoteStream.getTracks().forEach(track => track.stop());
@@ -444,7 +466,6 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
     }
   });
 };
-
 
 export async function handleIncomingICECandidate(pc, candidate) {
   if (!pc.remoteDescription) {
@@ -487,5 +508,8 @@ export async function processCandidateQueue(pc, queue) {
   }
 }
 
+export function closingConnection(admin){
+  closePeerConnection(admin);
+}
 
       

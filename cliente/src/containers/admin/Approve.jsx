@@ -12,7 +12,7 @@ const AttendeesList = () => {
   const [loading, setLoading] = useState(true);
   const [pendingUsers, setPendingUsers] = useState(null);
   const [isApproved, setIsApproved] = useState(null);
-  // const [error, setError] = useState(null);
+  const [check, setCheck] = useState(false);
 
   useEffect( ()=>{
     const fetchUsers = async () =>  {
@@ -36,7 +36,7 @@ const AttendeesList = () => {
 
         const pendingUsers = await pendingRes.json();
         const approvedUsers = await approvedRes.json();
-        // console.log("pending, approved", pendingUsers, approvedUsers);
+        console.log("pending, approved", pendingUsers, approvedUsers);
 
         setPendingUsers(pendingUsers.pendingUsers || pendingUsers || []);
         setIsApproved(approvedUsers.approvedUsers || approvedUsers || []);
@@ -50,8 +50,10 @@ const AttendeesList = () => {
     fetchUsers();
   },[]);
 
-    const handleApprove = async (userId) => {
-      try {
+  const handleApprove = async (userId) => {
+
+    socket5.emit("approve", userId);
+    try {
           const response = await fetch("https://localhost:3000/api/approved-users",
             { 
                 method: 'POST',
@@ -67,11 +69,11 @@ const AttendeesList = () => {
           //   prev.map(u => 
           //     u.user_id === userId ? { ...u, status: 'approved' } : u));
           // }
-      } catch (err) {
-      console.error(err);
-      console.log("Error al enviar la solicitud.");
-      }
+    } catch (err) {
+    console.error(err);
+    console.log("Error al enviar la solicitud.");
     }
+  }
 
   const handleCancel = async (email) => {
     try {
