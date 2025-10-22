@@ -171,8 +171,7 @@ export const listenToApprovals = async (room, onNewViewer) => {
 //El administrador escucha las señales de los viewers para emitir oferta
 export const listenToSignals = async (userId, callback) => {
 
-return supabase
-    
+    const channel = supabase
     .channel(`Signals-${userId}`)
     .on(
       'postgres_changes',
@@ -187,8 +186,13 @@ return supabase
       }
     )
     .subscribe((status) => {
-    console.log("Estado de suscripción:", status);
+    console.log(`Estado de suscripción para ${userId}:`, status);
+    if (status === 'CLOSED' || status === 'TIMED_OUT' || status === 'ERROR') {
+        console.warn(`⚠️ Canal cerrado para ${userId}, reintentando...`);
+        // Opcional: podrías reintentar la suscripción automáticamente.
+      }
   });
+  return channel;
 };
 
 //Los vieweres escuchan las señales del admin y envian la respuesta (answers)
@@ -198,8 +202,6 @@ export const listenToSignalsFromAdmin = async (userId, callback) => {
       console.error("Usuario no definido aun"); 
       return;
     }
-
-
     const channel = supabase
     .channel(`Signals-${userId}`)
     .on(
@@ -209,7 +211,6 @@ export const listenToSignalsFromAdmin = async (userId, callback) => {
         schema: 'public',
         table: 'webrtc_signaling',
         filter: `to_user=eq.${userId}`
-
       },
       (payload) => {
         callback(payload.new)
@@ -235,34 +236,33 @@ export const listenToSignalsFromAdmin = async (userId, callback) => {
 
 export const listenToSignalsFromViewer = async (userId, callback) => {
 
-    if (!userId) {
-      console.error("Usuario no definido aun"); 
-      return;
+  if (!userId) {
+    console.error("Usuario no definido aun"); 
+    return;
+  }
+
+  const channel = supabase
+  .channel(`Signals-${userId}`)
+  .on(
+    'postgres_changes',
+    {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'webrtc_signaling',
+      filter: `to_user=eq.${userId}`
+
+    },
+    (payload) => {
+      callback(payload.new)
     }
+  )
+  .subscribe((status) => {
+  console.log("Estado de suscripción:", status);
 
-    const channel = supabase
-    .channel(`Signals-${userId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'webrtc_signaling',
-        filter: `to_user=eq.${userId}`
-
-      },
-      (payload) => {
-        callback(payload.new)
-      }
-    )
-    .subscribe((status) => {
-    console.log("Estado de suscripción:", status);
-
-    return {
-      removeChannel: () => supabase.removeChannel(channel)
-    }
-
-  });
+  return {
+    removeChannel: () => supabase.removeChannel(channel)
+  }
+});
 
 
   // return {

@@ -96,6 +96,7 @@ let adminPc;
 export async function createOfferToAdmin(roomId, viewerId /*, pc*/) {
 
   try {
+    let tracksAdded = false;
     const adminId = await getActiveAdmin(roomId);
     console.log("admin desde cliente", adminId);
 
@@ -105,8 +106,11 @@ export async function createOfferToAdmin(roomId, viewerId /*, pc*/) {
     } 
 
       // Agregar tracks del local stream
-    localStream.getTracks().forEach((track) => adminPc.addTrack(track, localStream));
-
+      if (!tracksAdded) {
+        localStream.getTracks().forEach((track) => adminPc.addTrack(track, localStream));
+        tracksAdded = true;
+      };
+      
     // Manejar ICE candidates
     adminPc.onicecandidate = async (event) => {
       if (event.candidate) {
@@ -173,15 +177,15 @@ export async function listenForAnswers(viewerId) {
 
     if (type === "answer") {
       await handleAnswer(from_user, payload);
-    };
+    
       
-    // Verificar el estado de señalización
+      // Verificar el estado de señalización
       console.log("Estado actual de señalización:", pc.signalingState);
       
-      if (pc.signalingState !== "have-local-offer") {
-          console.warn("Estado incorrecto para answer. Estado actual:", pc.signalingState);
-          return;
-      }
+      // if (pc.signalingState !== "have-remote-offer") {
+      //     console.warn("Estado incorrecto para answer. Estado actual:", pc.signalingState);
+      //     return;
+      // }
 
       console.log("📦 Payload recibido del answer:");
 
@@ -193,7 +197,7 @@ export async function listenForAnswers(viewerId) {
       } else {
         console.warn(`⚠️ Estado inesperado: ${pc.signalingState} para ${viewerId}`);
       }
-
+    
       try {
         while (candidateQueue.length > 0) {
           const queuedCandidate = candidateQueue.shift();
@@ -207,9 +211,8 @@ export async function listenForAnswers(viewerId) {
       } catch (error) {
       console.error(`❌ Error al aplicar la respuesta de ${adminId}:`, error);
       }
-    
-
-    if (type === "ice-candidate") {
+      
+      } else if (type === "ice-candidate") {
       try {
         const parsed = typeof payload === "string" ? JSON.parse(payload) : payload;
         console.log("📦 Payload ICE recibido:", parsed); // Debug detallado
@@ -267,14 +270,11 @@ export async function listenForAnswers(viewerId) {
 
 
 export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
-  console.log("Verificando que el usuario aprobado es:",viewerId );
+  // console.log("Verificando que el usuario aprobado es:",viewerId );
   if (peerConnections[adminId]) {
     peerConnections[adminId].close();
     delete peerConnections[adminId];
   };
-
-  // const pcAdmin = new RTCPeerConnection(configuration);
-  // peerConnections[adminId] = pcAdmin;
 
   let pcAdmin = getPeerConnection(adminId);
   if (!pcAdmin) {
@@ -299,29 +299,6 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
     if (streamTarget) {
       streamTarget.srcObject = remoteStream;
       console.log("📺 Stream remoto asignado al video con", remoteStream.getTracks().length, "tracks");
-    }
-  };
-
-    // Manejar ICE candidates
-  pcAdmin.onicecandidate = async (event) => {
-    if (event.candidate) {
-      // Enviar a cada viewer individualmente
-        try {
-            await sendSignal({
-            room_id: roomId,  
-            from_user: viewerId,  //De mi (viewer)
-            to_user: adminId,     //Para el admin 
-            type: "ice-candidate",
-            payload: {
-              candidate: event.candidate.candidate,        // ← Esto es crucial
-              sdpMLineIndex: event.candidate.sdpMLineIndex,
-              sdpMid: event.candidate.sdpMid
-            },
-          });
-
-        } catch (error) {
-            console.error(`Error enviando ICE candidate `, error);
-        }
     }
   };
 
@@ -375,6 +352,29 @@ export async function receivingStream(roomId, viewerId, adminId, streamTarget) {
 
         await pcAdmin.setLocalDescription(answer);
         console.log("Local description set");
+
+         // Manejar ICE candidates
+        pcAdmin.onicecandidate = async (event) => {
+          if (event.candidate) {
+            // Enviar a cada viewer individualmente
+              try {
+                  await sendSignal({
+                  room_id: roomId,  
+                  from_user: viewerId,  //De mi (viewer)
+                  to_user: adminId,     //Para el admin 
+                  type: "ice-candidate",
+                  payload: {
+                    candidate: event.candidate.candidate,        // ← Esto es crucial
+                    sdpMLineIndex: event.candidate.sdpMLineIndex,
+                    sdpMid: event.candidate.sdpMid
+                  },
+                });
+
+              } catch (error) {
+                  console.error(`Error enviando ICE candidate `, error);
+              }
+          }
+        };
 
         pcAdmin.onconnectionstatechange = () => {
           console.log("📡 Conexión state:", pcAdmin.connectionState);

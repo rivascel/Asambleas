@@ -108,8 +108,6 @@ async function ApprovedUserQuery(roomId) {
     }
 }
 
-
-
 async function approveUser(roomId, userId, approved='approved') {
 
    //aprobar el usuario
@@ -145,8 +143,6 @@ async function approveUser(roomId, userId, approved='approved') {
     if (updateRoomError) throw updateRoomError;
 }
 
-
-
 //Actualizar las ofertas sdp
 async function offers(offer) {
 
@@ -171,71 +167,39 @@ async function offersAnswer(answer) {
     if (error) throw error;
 }
 
+async function deleteCandidate(userId, roomId = 'main-room') {
+    try{
+        // Primero, obtén los datos actuales
+        const { data: dataUser, error: fetchError } = await supabase
+        .from('requests')
+        .select('user_id')
+        .eq('user_id', userId)
+        .eq('room_id', roomId)
+        .maybeSingle()
+        // .single()
 
-// function listenForApproval(userId, roomId, callback) {
-//     return supabase
-//         .channel('room-approval')
-//         .on(
-//             'postgres_changes',
-//             {
-//                 event: 'UPDATE',
-//                 schema: 'public',
-//                 table: 'requests',
-//                 filter: `user_id=eq.${userId}`,
-//             },
-//             (payload) => {
-//                 if (payload.new.status === 'approved' && payload.new.room_id === roomId) {
-//                     callback();
-//                 }
-//             }
-//         )
-//         .subscribe();
-// }
+        if (fetchError) throw fetchError;
 
-supabase.channel('requests')
-  .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'requests' }, (payload) => {
-    io.to('admin').emit('new-request', payload.new);
-  })
-  .subscribe();
+        if (!dataUser) {
+        console.warn(`No se encontró un request del usuario ${userId} en la sala ${roomId}.`);
+        return;
+        }
 
-
-async function deleteCandidate(userId) {
-    // Primero, obtén los datos actuales
-    const { data: roomData, error: roomFetchError } = await supabase
+  // 2️⃣ Eliminar el request
+    const { error: deleteError } = await supabase
       .from('requests')
-      .select('user_id')
-      .overlaps('user_id', [userId])
-      .maybeSingle();
-    if (roomFetchError) throw roomFetchError;
-  
-    if (!roomData) {
-        console.warn('No se encontró ninguna sala que contenga al usuario.');
-       
-    } else {
-        const updatedCandidatesRoom = (roomData?.user_id || []).filter(id => id !== userId);
+      .delete()
+      .eq('user_id', userId)
+      .eq('room_id', roomId);
 
-        const { error: roomUpdateError } = await supabase
-            .from('requests')
-            .update({ user_id: updatedCandidatesRoom })
-            .eq('room_id', 'main-room');
-            
-        if (roomUpdateError) throw roomUpdateError;
-        console.log(`Usuario ${userId} eliminado del array de la sala.`);
-    }
+    if (deleteError) throw deleteError;
 
-      // 4️⃣ Eliminar su request
-        const { error: requestDeleteError } = await supabase
-            .from('requests')
-            .delete()
-            .eq('user_id', userId)
-            .eq('room_id', roomId);
-
-        if (requestDeleteError) throw requestDeleteError;
-        console.log(`Request del usuario ${userId} eliminada correctamente.`);
-
+    console.log(`Request del usuario ${userId} eliminado correctamente de la sala ${roomId}.`);
+  } catch (err) {
+    console.error('Error al eliminar candidato:', err);
+  }
 }
-
-
+       
 module.exports = {
     createRoom,
     requestToJoinRoom,

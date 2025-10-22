@@ -32,11 +32,34 @@ const VideoGeneral = () => {
     console.log("Usuario aprobado:", userId);
   });
 
-  // useEffect(() => {
-  //   setViewerReady(checkApprove); // sincroniza con el contexto
-  // }, [checkApprove]);
+    //Corresponde cuando el viewer recibe la trasmision del admin
+    useEffect(() => {
+    // 1️⃣ Validación temprana
+    if (!email || !roomId || !ownerInfo?.email) {
+      console.warn("Esperando datos para fetch...");
+      return;
+    }
+    
+    const fetchData = async () => {
+      const admin = await getAdmin(roomId);
+      // setAdminId(admin);
+      // console.log("Admin",admin);
 
+      
+      joinStreamAsViewer(roomId, ownerInfo.email, admin, remoteRef.current);
+      // console.log("uniendose viewer al stream", roomId, ownerInfo.email, admin, remoteRef.current);
+        //   setViewerReady(true);
+        // } else {
+        //   console.log("Usuario aun no aprobado");
+        //   setViewerReady(false);
+        // };
 
+    };
+    fetchData();
+    
+  },[roomId, email, ownerInfo]);
+
+  //corresponde cuando el viewer es aprobado y activa la camara
   useEffect(() => {
     // 1️⃣ Validación temprana
     if (!email || !roomId || !ownerInfo?.email) {
@@ -48,10 +71,9 @@ const VideoGeneral = () => {
     
     const fetchData = async () => {
       const admin = await getAdmin(roomId);
-      setAdminId(admin);
+      // setAdminId(admin);
       console.log("Admin",admin);
 
-  // const getUser = async () => {
       try {
         const response = await fetch("https://localhost:3000/api/recover-users-id", { 
         method: 'POST',
@@ -62,13 +84,12 @@ const VideoGeneral = () => {
         if (!response.ok) throw new Error(`Error ${response.status}`);
 
         const userData = await response.json();
-        console.log("userData",userData);
+        // console.log("userData",userData);
         
         const userById = userData.approvedUsersById || [];
 
         if (userById.includes(email)) {
-          console.log("Usuario aprobado uniendose a stream...")
-          joinStreamAsViewer(roomId, ownerInfo.email, admin, remoteRef.current);
+          // console.log("Usuario aprobado para enviar stream...");
           setViewerReady(true);
         } else {
           console.log("Usuario aun no aprobado");
@@ -79,9 +100,6 @@ const VideoGeneral = () => {
         console.error("Error fetching user", error);
       }
     };
-    // getUser();
-
-    // };
     fetchData();
     
   },[checkApprove, roomId, email, ownerInfo]);

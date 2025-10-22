@@ -56,8 +56,8 @@ const AskToParticipate = () => {
         }
 
          // Ahora puedes usar result sin miedo a errores
-        console.log(`Usuarios pendientes: ${pendingUsersById.length}`);
-        console.log(`Usuarios aprobados: ${approvedUsersById.length}`);
+        // console.log(`Usuarios pendientes: ${pendingUsersById.length}`);
+        // console.log(`Usuarios aprobados: ${approvedUsersById.length}`);
         // console.log(`Usuarios aprobados: ${approvedUsers.length}`);
 
         return { pendingUsersById, approvedUsersById /*, approvedUsers*/};

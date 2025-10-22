@@ -36,9 +36,7 @@ const VideoGeneral = () => {
   useEffect(() => {
 
     let unsubscribe;
-
     listenForApprovals(roomId);
-      
     
     (async () => {
       unsubscribe = await listenToApprovals(roomId, ({ user_id }) => { 

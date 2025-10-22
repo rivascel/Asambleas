@@ -30,3 +30,4 @@
 {"interior":14,"apartamento":101,"correo":"rivascel@gmail.com","proposicion":"Propuesta #3","valor":1}
 {"interior":14,"apartamento":101,"correo":"rivascel@gmail.com","proposicion":"Votacion punto 1","valor":2}
 {"interior":14,"apartamento":101,"correo":"rivascel@gmail.com","proposicion":"Propuesta de ejemplo para ser votada asamblea","valor":1}
+{"interior":14,"apartamento":101,"correo":"rivascel@gmail.com","proposicion":"Aprueba aumento 13%\n","valor":1}
